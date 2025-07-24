@@ -1,3 +1,3 @@
 # XDC_Tycoon
 
-Under construction. will update on gere once completed
+Under construction. will update on here once completed
