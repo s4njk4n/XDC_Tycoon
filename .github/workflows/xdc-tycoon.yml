@@ -1,0 +1,69 @@
+name: XDC Tycoon Monitoring
+
+on:
+  schedule:
+    - cron: '0 * * * *'  # Run every hour
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout the repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Install dependencies
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq bc curl
+
+      # Create api_key.txt from GitHub Secret
+      - name: Create api_key.txt
+        env:
+          ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+        run: |
+          echo "$ETHERSCAN_API_KEY" > api_key.txt
+          echo "api_key.txt created successfully"
+
+      # Create tycoon_nodes.csv from GitHub Secret
+      - name: Create tycoon_nodes.csv
+        env:
+          TYCOON_NODES_CSV: ${{ secrets.TYCOON_NODES_CSV }}
+        run: |
+          echo "$TYCOON_NODES_CSV" > tycoon_nodes.csv
+          echo "tycoon_nodes.csv created successfully"
+
+      # Restore state.json and log.txt from cache (or initialize if missing)
+      - name: Cache state and log files
+        uses: actions/cache@v4
+        with:
+          path: |
+            state.json
+            log.txt
+          key: tycoon-state-log-${{ runner.os }}-${{ github.run_id }}  # Unique per run for saving
+          restore-keys: tycoon-state-log-${{ runner.os }}-  # Restore from any previous cache
+
+      # Initialize state.json if still missing after cache restore
+      - name: Initialize state.json
+        run: |
+          if [ ! -f "state.json" ]; then
+            echo "{}" > state.json
+            echo "Initialized empty state.json"
+          fi
+
+      # Initialize log.txt if still missing
+      - name: Initialize log.txt
+        run: |
+          if [ ! -f "log.txt" ]; then
+            touch log.txt
+            echo "Initialized empty log.txt"
+          fi
+
+      # Run the tycoon script
+      - name: Run Tycoon Script
+        run: |
+          chmod +x tycoon.sh
+          ./tycoon.sh
