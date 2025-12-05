@@ -72,6 +72,7 @@ For tech-savvy users: Fork and self-host in GitHub Actions. No cost, full contro
 - Workflow fails? Check Actions logs for errors (e.g., connectivity issues).  
 - No alerts? Verify topic in app/logs.
 - Port issues? GitHub runners are cloud-based—firewalls may vary.
+- Note that end of month educational rewards detection may incur inaccuracies for owners addresses that have more than once candidate. This is due to the inability to link incoming payments to a specific candidate as all educational reward payments will arrive at a single owners wallet in this situation.
 
 Runs free on GitHub runners. State persists via cache; logs auto-rotate daily. (Initially written to run on a VPS and I've left some features in it in case we ever need to migrate to using VPS's in future).
 
