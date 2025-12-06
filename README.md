@@ -13,7 +13,7 @@ Supports multiple nodes and devices (e.g., notify your whole team!).
 For more projects, visit [XDC Outpost](https://xdcoutpost.xyz).
 
 ## 🚀 Free Open-Source Version
-For tech-savvy users: Fork and self-host in GitHub Actions. No cost, full control.
+For tech-savvy users: Fork and self-host in GitHub Actions. No cost, full control. (Paid option below).
 
 ### What You Need First
 
