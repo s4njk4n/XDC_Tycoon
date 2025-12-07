@@ -64,9 +64,9 @@ For tech-savvy users: Fork and self-host in GitHub Actions. No cost, full contro
    - Check the Actions logs for output. Alerts go to your ntfy app on status changes, rewards, or issues.
 
 **Security Notes**:  
-- Never commit secrets to code—use GitHub Secrets only (encrypted & secure).  
+- If cutomising or modifying, never commit secrets to code. Use GitHub Secrets only (encrypted & secure).  
 - Public forks are safe as long as you keep your details in a Github Secrets vault as noted above.
-- Test with dummy data first. Enable 2FA and repo alerts.
+- Test with dummy data first. Enable 2FA on your Github acc and repo alerts.
 
 **Debug Tips**:  
 - Workflow fails? Check Actions logs for errors (e.g., connectivity issues).  
