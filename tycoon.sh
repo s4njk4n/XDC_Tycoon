@@ -1,12 +1,21 @@
 #!/bin/bash
 
-# XDC Tycoon v1.0 - Open-source XDC masternode monitor
+# XDC Tycoon v1.1 - Open-source XDC masternode monitor
 # Fork from https://github.com/s4njk4n/XDC_Tycoon
+
+# Settings you can change with GitHub repository variables (Settings > Secrets and variables > Actions > Variables):
+#   NOTIFY_TZ   time zone for the daily status message and log times, e.g. Asia/Singapore (default Australia/Sydney)
+#   DAILY_HOUR  hour of the day (0-23) after which the daily status message is sent (default 8)
+NOTIFY_TZ="${NOTIFY_TZ:-Australia/Sydney}"
+DAILY_HOUR="${DAILY_HOUR:-8}"
+[[ "$DAILY_HOUR" =~ ^[0-9]{1,2}$ ]] && [ "$DAILY_HOUR" -le 23 ] || DAILY_HOUR=8
+TZ="$NOTIFY_TZ" date >/dev/null 2>&1 || NOTIFY_TZ="Australia/Sydney"
+ALERT_REPEAT_SECONDS=$((2*3600))  # repeat SLASHED / DISAPPEARED alerts at most every 2 hours (like Sentinel)
 
 # Variables Section
 CSV_FILE="tycoon_nodes.csv"  # Path to CSV file
-API_BASE="https://master.xinfin.network/api/candidates/"
-EXPLORER_API="https://api.etherscan.io/v2/api"  # Etherscan V2 API endpoint (multichain)
+API_BASE="${API_BASE:-https://master.xinfin.network/api/candidates/}"
+EXPLORER_API="${EXPLORER_API:-https://api.etherscan.io/v2/api}"  # Etherscan V2 API endpoint (multichain)
 CHAIN_ID="50"  # Chain ID for XDC mainnet
 API_KEY_FILE="api_key.txt"  # File containing Etherscan API key
 STATE_FILE="state.json"  # File to store previous states
@@ -14,7 +23,7 @@ LOG_FILE="log.txt"  # File for logging
 RETRIES=3  # Number of retries for API calls
 SLEEP=5  # Seconds to wait between retries
 REWARD_AMOUNTS=("22500000000000000000000" "66666000000000000000000")  # 22500 XDC and 66666 XDC in wei
-NTFY_SERVER="ntfy.sh"  # ntfy server URL without https://
+NTFY_SERVER="${NTFY_SERVER:-https://ntfy.sh}"  # ntfy server URL
 TIMEOUT=10  # Timeout for curl in seconds
 
 if [ ! -f "$CSV_FILE" ]; then
@@ -27,12 +36,14 @@ if [ ! -f "$API_KEY_FILE" ]; then
   exit 1
 fi
 
-API_KEY=$(cat "$API_KEY_FILE")
+API_KEY=$(tr -d '\r\n ' < "$API_KEY_FILE")
+# Strip Windows line endings (common when the CSV was edited in Excel or Notepad)
+sed -i 's/\r$//' "$CSV_FILE" 2>/dev/null || true
 
 # Logging function
 write_to_log() {
     local message="$1"
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $message" >> "$LOG_FILE"
+    echo "$(TZ="$NOTIFY_TZ" date '+%Y-%m-%d %H:%M:%S') - $message" >> "$LOG_FILE"
 }
 
 # Clean log entries older than 48 hours
@@ -85,7 +96,7 @@ send_ntfy_notification() {
 
 # Function to get AEST timestamp
 get_aest_timestamp() {
-    TZ='Australia/Sydney' date '+%Y-%m-%d %H:%M:%S'
+    TZ="$NOTIFY_TZ" date '+%Y-%m-%d %H:%M:%S'
 }
 
 # Function to query status for a candidate
@@ -122,7 +133,8 @@ check_rewards() {
   local NODE_NAME="$3"
   local CANDIDATE_SHORT="${4: -4}"
   local OWNER_SHORT="${OWNER: -4}"
-  local LAST_TIME=$(echo "$PREVIOUS_STATES" | jq -r ".\"$OWNER\" // 0")
+  # Read from NEW_STATES (not PREVIOUS_STATES) so an owner listed on several rows isn't alerted twice for the same payment
+  local LAST_TIME=$(echo "$NEW_STATES" | jq -r ".\"$OWNER\" // 0")
 
   local CURRENT_TIME=$(date +%s)
 
@@ -193,11 +205,11 @@ check_rewards() {
 
 # Determine if we should send daily status
 current_time=$(date +%s)
-current_aest_date=$(TZ='Australia/Sydney' date -d "@$current_time" +%Y-%m-%d)
-current_aest_hour=$(TZ='Australia/Sydney' date -d "@$current_time" +%H)
+current_aest_date=$(TZ="$NOTIFY_TZ" date -d "@$current_time" +%Y-%m-%d)
+current_aest_hour=$(TZ="$NOTIFY_TZ" date -d "@$current_time" +%H)
 last_daily_date=$(echo "$PREVIOUS_STATES" | jq -r '."last_daily_notification_date" // ""')
 send_daily=false
-if [ "$current_aest_hour" -ge 8 ] && [ "$last_daily_date" != "$current_aest_date" ]; then
+if [ "$current_aest_hour" -ge "$DAILY_HOUR" ] && [ "$last_daily_date" != "$current_aest_date" ]; then
   send_daily=true
 fi
 
@@ -213,8 +225,9 @@ while IFS=',' read -r node_name candidate owner_address ntfy_topic; do
   # Load previous status
   previous_status=$(echo "$PREVIOUS_STATES" | jq -r ".\"$candidate\" // \"UNKNOWN\"")
 
-  # Query status
+  # Query status (NODE_UNRESPONSIVE is per node; UNRESPONSIVE records that it happened at least once this run)
   current_status=""
+  NODE_UNRESPONSIVE=false
   for ((attempt=1; attempt<=$RETRIES; attempt++)); do
     RESPONSE=$(curl -s "$API_BASE$candidate")
     if [ -n "$RESPONSE" ] && echo "$RESPONSE" | jq . > /dev/null 2>&1; then
@@ -230,10 +243,11 @@ while IFS=',' read -r node_name candidate owner_address ntfy_topic; do
       sleep $SLEEP
     else
       UNRESPONSIVE=true
+      NODE_UNRESPONSIVE=true
     fi
   done
 
-  if [ "$UNRESPONSIVE" = true ]; then
+  if [ "$NODE_UNRESPONSIVE" = true ]; then
     TIMESTAMP=$(get_aest_timestamp)
     # MESSAGE="XDC Tycoon: Node $node_name (candidate ...${candidate: -4}, owner ...${owner_address: -4}) - Governance dApp is unresponsive! Timestamp: $TIMESTAMP"
     MESSAGE="XDC Tycoon: $node_name (candidate ...${candidate: -4}, owner ...${owner_address: -4}) - Governance dApp is unresponsive!"
@@ -259,10 +273,17 @@ while IFS=',' read -r node_name candidate owner_address ntfy_topic; do
     fi
   fi
 
-  if [ "$current_status" = "SLASHED" ] || [ "$current_status" = "RESIGNED" ] || [ "$current_status" = "DISAPPEARED" ]; then
+  # Repeat reminders for SLASHED / DISAPPEARED every ALERT_REPEAT_SECONDS (not every run).
+  # RESIGNED is permanent, so it's only announced when it changes (above).
+  alert_key="alert_${candidate}"
+  last_alert=$(echo "$NEW_STATES" | jq -r ".\"$alert_key\" // 0")
+  if [ "$current_status" != "$previous_status" ]; then
+    NEW_STATES=$(echo "$NEW_STATES" | jq --arg key "$alert_key" --arg val "$current_time" '.[$key] = $val')
+  elif { [ "$current_status" = "SLASHED" ] || [ "$current_status" = "DISAPPEARED" ]; } && [ $((current_time - last_alert)) -ge $ALERT_REPEAT_SECONDS ]; then
+    NEW_STATES=$(echo "$NEW_STATES" | jq --arg key "$alert_key" --arg val "$current_time" '.[$key] = $val')
     TIMESTAMP=$(get_aest_timestamp)
     # MESSAGE="XDC Tycoon: Node $node_name (candidate ...${candidate: -4}, owner ...${owner_address: -4}) is $current_status! Timestamp: $TIMESTAMP"
-    MESSAGE="XDC Tycoon: $node_name (candidate ...${candidate: -4}, owner ...${owner_address: -4}) is $current_status!"
+    MESSAGE="XDC Tycoon: $node_name (candidate ...${candidate: -4}, owner ...${owner_address: -4}) is still $current_status!"
     echo "$MESSAGE"
     write_to_log "$MESSAGE"
     if [ -n "$ntfy_topic" ]; then
